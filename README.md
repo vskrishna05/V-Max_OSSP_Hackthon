@@ -70,19 +70,6 @@ Results may vary depending on the selected directory and search term.
 - Save search history and export results.
 - Compare search performance using different thread counts.
 
-## Team Members
-
-| Name | Student ID |
-|---|---|
-| Venkata Sai Krishna | 2520030027 |
-| Pujith Pavan Kumar | 2520030029 |
-| Ajai Manikanta | 2520030320 |
-| Bandla Vinay | 2520030437 |
-
-**Department:** Computer Science and Engineering  
-**Institution:** K L (Deemed to be) University  
-**Academic Year:** 2026–2027
-
 ## Conclusion
 
 This project demonstrates file handling, directory traversal, and multithreading using C and POSIX threads. It provides a practical way to explore how multiple threads can share search tasks and how synchronization helps manage shared data safely.
