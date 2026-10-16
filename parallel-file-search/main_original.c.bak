@@ -1,0 +1,325 @@
+
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <unistd.h>
+#include <errno.h>
+
+#define MAX_TASKS 100000
+#define MAX_PATH_LEN 4096
+#define MAX_THREADS 16
+
+typedef struct {
+    char path[MAX_PATH_LEN];
+} Task;
+
+Task tasks[MAX_TASKS];
+int task_count = 0;
+int next_task = 0;
+
+pthread_mutex_t task_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+char query[MAX_PATH_LEN];
+int search_mode;
+long long files_checked = 0;
+long long matches_found = 0;
+
+void add_task(const char *path)
+{
+    if (task_count >= MAX_TASKS) {
+        fprintf(stderr, "Task limit reached; some entries may be skipped.\n");
+        return;
+    }
+
+    snprintf(tasks[task_count].path,
+             sizeof(tasks[task_count].path), "%s", path);
+    task_count++;
+}
+
+void search_directory(const char *path)
+{
+    DIR *dir = opendir(path);
+
+    if (!dir)
+        return;
+
+    struct dirent *entry;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char fullpath[MAX_PATH_LEN];
+
+        int n = snprintf(fullpath, sizeof(fullpath),
+                         "%s/%s", path, entry->d_name);
+
+        if (n < 0 || (size_t)n >= sizeof(fullpath))
+            continue;
+
+        struct stat st;
+
+        /* Do not follow symbolic links. */
+        if (lstat(fullpath, &st) != 0)
+            continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            search_directory(fullpath);
+        } else if (S_ISREG(st.st_mode)) {
+            if (search_mode == 1) {
+                if (strstr(entry->d_name, query) != NULL) {
+                    pthread_mutex_lock(&print_mutex);
+                    printf("[MATCH] %s\n", fullpath);
+                    matches_found++;
+                    pthread_mutex_unlock(&print_mutex);
+                }
+            } else {
+                FILE *file = fopen(fullpath, "r");
+
+                if (!file)
+                    continue;
+
+                char *line = NULL;
+                size_t capacity = 0;
+                ssize_t length;
+                long line_number = 0;
+                int matched = 0;
+
+                while ((length = getline(&line, &capacity, file)) != -1) {
+                    (void)length;
+                    line_number++;
+
+                    if (strstr(line, query) != NULL) {
+                        if (!matched) {
+                            pthread_mutex_lock(&print_mutex);
+                            printf("[MATCH] %s\n", fullpath);
+                            matched = 1;
+                            matches_found++;
+                            pthread_mutex_unlock(&print_mutex);
+                        }
+
+                        pthread_mutex_lock(&print_mutex);
+                        printf("        Line %ld: %s",
+                               line_number, line);
+                        if (line[0] != '\0' &&
+                            line[strlen(line) - 1] != '\n')
+                            printf("\n");
+                        pthread_mutex_unlock(&print_mutex);
+                    }
+                }
+
+                free(line);
+                fclose(file);
+            }
+
+            pthread_mutex_lock(&print_mutex);
+            files_checked++;
+            pthread_mutex_unlock(&print_mutex);
+        }
+    }
+
+    closedir(dir);
+}
+
+void *worker(void *arg)
+{
+    long id = (long)arg;
+
+    while (1) {
+        pthread_mutex_lock(&task_mutex);
+
+        if (next_task >= task_count) {
+            pthread_mutex_unlock(&task_mutex);
+            break;
+        }
+
+        int index = next_task++;
+        char path[MAX_PATH_LEN];
+        snprintf(path, sizeof(path), "%s", tasks[index].path);
+
+        pthread_mutex_unlock(&task_mutex);
+
+        struct stat st;
+
+        if (lstat(path, &st) != 0)
+            continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            search_directory(path);
+        } else if (S_ISREG(st.st_mode)) {
+            char *slash = strrchr(path, '/');
+            const char *name = slash ? slash + 1 : path;
+
+            if (search_mode == 1) {
+                if (strstr(name, query) != NULL) {
+                    pthread_mutex_lock(&print_mutex);
+                    printf("[MATCH] %s\n", path);
+                    matches_found++;
+                    pthread_mutex_unlock(&print_mutex);
+                }
+            } else {
+                FILE *file = fopen(path, "r");
+
+                if (file) {
+                    char *line = NULL;
+                    size_t capacity = 0;
+                    ssize_t length;
+                    long line_number = 0;
+                    int matched = 0;
+
+                    while ((length = getline(&line, &capacity, file)) != -1) {
+                        (void)length;
+                        line_number++;
+
+                        if (strstr(line, query) != NULL) {
+                            if (!matched) {
+                                pthread_mutex_lock(&print_mutex);
+                                printf("[MATCH] %s\n", path);
+                                matches_found++;
+                                pthread_mutex_unlock(&print_mutex);
+                                matched = 1;
+                            }
+
+                            pthread_mutex_lock(&print_mutex);
+                            printf("        Line %ld: %s",
+                                   line_number, line);
+                            if (line[0] != '\0' &&
+                                line[strlen(line) - 1] != '\n')
+                                printf("\n");
+                            pthread_mutex_unlock(&print_mutex);
+                        }
+                    }
+
+                    free(line);
+                    fclose(file);
+                }
+            }
+
+            pthread_mutex_lock(&print_mutex);
+            files_checked++;
+            pthread_mutex_unlock(&print_mutex);
+        }
+    }
+
+    pthread_mutex_lock(&print_mutex);
+    printf("[Thread %ld] Finished assigned tasks.\n", id);
+    pthread_mutex_unlock(&print_mutex);
+
+    return NULL;
+}
+
+int main(void)
+{
+    char root[MAX_PATH_LEN];
+    int thread_count;
+
+    printf("============================================\n");
+    printf("       PARALLEL FILE SEARCH USING THREADS\n");
+    printf("============================================\n");
+
+    printf("Enter folder path: ");
+    if (!fgets(root, sizeof(root), stdin))
+        return 1;
+
+    root[strcspn(root, "\n")] = '\0';
+
+    struct stat root_stat;
+
+    if (stat(root, &root_stat) != 0 || !S_ISDIR(root_stat.st_mode)) {
+        printf("Error: Invalid folder path.\n");
+        return 1;
+    }
+
+    printf("\n1. Search by filename\n");
+    printf("2. Search text inside files\n");
+    printf("Choose search type: ");
+
+    if (scanf("%d", &search_mode) != 1 ||
+        (search_mode != 1 && search_mode != 2)) {
+        printf("Invalid search type.\n");
+        return 1;
+    }
+
+    getchar();
+
+    printf("Enter search term: ");
+    if (!fgets(query, sizeof(query), stdin))
+        return 1;
+
+    query[strcspn(query, "\n")] = '\0';
+
+    if (query[0] == '\0') {
+        printf("Search term cannot be empty.\n");
+        return 1;
+    }
+
+    printf("Number of threads (1-%d): ", MAX_THREADS);
+
+    if (scanf("%d", &thread_count) != 1 ||
+        thread_count < 1 || thread_count > MAX_THREADS) {
+        printf("Enter a thread count between 1 and %d.\n", MAX_THREADS);
+        return 1;
+    }
+
+    DIR *dir = opendir(root);
+
+    if (!dir) {
+        perror("Cannot open folder");
+        return 1;
+    }
+
+    struct dirent *entry;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char fullpath[MAX_PATH_LEN];
+
+        int n = snprintf(fullpath, sizeof(fullpath),
+                         "%s/%s", root, entry->d_name);
+
+        if (n < 0 || (size_t)n >= sizeof(fullpath))
+            continue;
+
+        add_task(fullpath);
+    }
+
+    closedir(dir);
+
+    printf("\nSearch started using %d threads...\n\n", thread_count);
+
+    pthread_t threads[MAX_THREADS];
+
+    for (long i = 0; i < thread_count; i++) {
+        int rc = pthread_create(&threads[i], NULL, worker, (void *)i);
+
+        if (rc != 0) {
+            fprintf(stderr, "Could not create thread %ld: %s\n",
+                    i, strerror(rc));
+            thread_count = (int)i;
+            break;
+        }
+    }
+
+    for (int i = 0; i < thread_count; i++)
+        pthread_join(threads[i], NULL);
+
+    printf("\n============================================\n");
+    printf("               SEARCH SUMMARY\n");
+    printf("============================================\n");
+    printf("Files checked : %lld\n", files_checked);
+    printf("Matches found : %lld\n", matches_found);
+    printf("Threads used  : %d\n", thread_count);
+    printf("Search complete.\n");
+
+    return 0;
+}
