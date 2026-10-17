@@ -12,3 +12,6 @@ run: $(TARGET)
 
 clean:
 	rm -f $(TARGET)
+
+web:
+	python3 web/server.py

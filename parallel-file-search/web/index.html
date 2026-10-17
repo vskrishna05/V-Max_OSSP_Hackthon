@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parallel Search — High-Performance File Search Utility</title>
+  <meta name="description" content="A clean, multithreaded file search and content matching tool built with POSIX C and concurrency controls.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23315EFB'><path d='M10 2a8 8 0 105.293 14.707l5 5 1.414-1.414-5-5A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z'/></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Clean Compact Navigation Bar -->
+  <header class="navbar">
+    <div class="container nav-inner">
+      <a href="#search" class="brand" id="brand-link">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        </div>
+        <span>Parallel Search</span>
+      </a>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="#search" class="nav-link active" id="nav-search">Search</a></li>
+          <li><a href="#benchmark" class="nav-link" id="nav-benchmark">Benchmark</a></li>
+          <li><a href="#architecture" class="nav-link" id="nav-arch">Architecture</a></li>
+          <li><a href="#history" class="nav-link" id="nav-history">History</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-actions">
+        <button class="btn btn-primary btn-sm" id="nav-run-btn">
+          Run Search
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Homepage Header / Overview -->
+  <section class="hero-simple">
+    <div class="container">
+      <div class="hero-header">
+        <h1 class="hero-title">Parallel File Search</h1>
+        <p class="hero-subtitle">
+          Search files and directories concurrently using multithreading on your system.
+        </p>
+        <div class="hero-actions">
+          <a href="#search" class="btn btn-primary" id="hero-open-search">Open Search</a>
+          <a href="#benchmark" class="btn btn-secondary" id="hero-view-bench">View Benchmarks</a>
+        </div>
+      </div>
+
+      <!-- 3 Small Feature Summaries -->
+      <div class="feature-triad">
+        <div class="feature-item">
+          <div class="feature-item-title">
+            <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+            Multithreaded Search
+          </div>
+          <p class="feature-item-desc">
+            A dynamic work queue distributes directory traversal across worker threads without busy-waiting.
+          </p>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-item-title">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            File Content Matching
+          </div>
+          <p class="feature-item-desc">
+            Streamed text search with automatic binary skipping, displaying line numbers and previews.
+          </p>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-item-title">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+            Search Performance Metrics
+          </div>
+          <p class="feature-item-desc">
+            Measures scan duration and file throughput using monotonic high-resolution system timers.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Application Body -->
+  <main class="main-content">
+    <div class="container">
+
+      <!-- ==================================================================
+           SECTION 1: SEARCH WORKSPACE (MAIN FOCUS)
+           ================================================================== -->
+      <section id="search-section" class="app-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Search Workspace</h2>
+              <p class="card-subtitle">Configure search query, root path, and worker thread concurrency.</p>
+            </div>
+            <!-- Search Mode Segmented Control -->
+            <div class="segment-tabs" id="search-mode-tabs">
+              <button class="segment-btn active" data-mode="filename">Filename Pattern</button>
+              <button class="segment-btn" data-mode="content">In-File Content</button>
+              <button class="segment-btn" data-mode="extension">Extension</button>
+              <button class="segment-btn" data-mode="size">File Size</button>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <!-- Search Inputs -->
+            <div class="search-grid">
+              <div class="form-group">
+                <label class="form-label" for="search-query-input" id="query-label">Search Query</label>
+                <input type="text" id="search-query-input" class="form-input" placeholder="Enter filename or search text (e.g. *.c, #include, Makefile)" value="*.c">
+                <div class="quick-pills">
+                  <span style="font-size: 0.78rem; color: var(--text-secondary); margin-right: 4px;">Examples:</span>
+                  <button type="button" class="pill-opt" data-query="*.c">*.c</button>
+                  <button type="button" class="pill-opt" data-query="*.h">*.h</button>
+                  <button type="button" class="pill-opt" data-query="#include">#include</button>
+                  <button type="button" class="pill-opt" data-query="pthread_">pthread_</button>
+                  <button type="button" class="pill-opt" data-query="Makefile">Makefile</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="search-folder-input">Root Directory</label>
+                <input type="text" id="search-folder-input" class="form-input" placeholder="Directory path (e.g. . or /mnt/c/Users/...)" value=".">
+                <div class="quick-pills">
+                  <span style="font-size: 0.78rem; color: var(--text-secondary); margin-right: 4px;">Presets:</span>
+                  <button type="button" class="pill-opt" data-folder=".">. (Project)</button>
+                  <button type="button" class="pill-opt" data-folder="/mnt/c/Users/vsktu/Desktop">Desktop</button>
+                  <button type="button" class="pill-opt" data-folder="/mnt/c/Users/vsktu/Downloads">Downloads</button>
+                  <button type="button" class="pill-opt" data-folder="/usr/include">/usr/include</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Size Filter Row (Only when in Size mode) -->
+            <div id="size-options-row" style="display: none; margin-bottom: 16px; padding: 12px; background: var(--bg-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+              <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
+                <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Condition:</label>
+                <select id="size-comp-select" class="form-input" style="width: 140px; height: 34px;">
+                  <option value="gt">Larger Than (>=)</option>
+                  <option value="lt">Smaller Than (<=)</option>
+                </select>
+                <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Threshold:</label>
+                <input type="number" id="size-val-input" value="10" class="form-input" style="width: 80px; height: 34px;">
+                <select id="size-unit-select" class="form-input" style="width: 100px; height: 34px;">
+                  <option value="MB" selected>MB</option>
+                  <option value="KB">KB</option>
+                  <option value="GB">GB</option>
+                  <option value="Bytes">Bytes</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Options & Action Bar -->
+            <div class="options-row">
+              <div class="threads-control">
+                <label class="form-label" for="threads-slider" style="margin-bottom: 0;">Worker Threads:</label>
+                <input type="range" min="1" max="32" value="12" id="threads-slider" class="threads-slider">
+                <span class="threads-badge" id="threads-label">12 Threads</span>
+              </div>
+
+              <button class="btn btn-primary" id="run-search-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+                <span>Run Search</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search Summary Strip (Strictly 3 Metrics) -->
+        <div class="search-summary-strip" id="search-summary-strip">
+          <div class="summary-metric">
+            <span class="summary-metric-label">Files Scanned</span>
+            <span class="summary-metric-value" id="metric-scanned">—</span>
+          </div>
+          <div class="summary-metric">
+            <span class="summary-metric-label">Matches Found</span>
+            <span class="summary-metric-value matches" id="metric-matches">—</span>
+          </div>
+          <div class="summary-metric">
+            <span class="summary-metric-label">Execution Time</span>
+            <span class="summary-metric-value" id="metric-time">—</span>
+          </div>
+        </div>
+
+        <!-- Error Banner (Hidden by default) -->
+        <div id="search-error-banner" style="display: none; padding: 12px 16px; background: var(--error-subtle); border: 1px solid #FECDCA; border-radius: var(--radius-md); color: var(--error); font-size: 0.88rem; margin-bottom: 20px;">
+          <strong>Error:</strong> <span id="search-error-text">Failed to perform search.</span>
+        </div>
+
+        <!-- Search Results Table Card -->
+        <div class="card">
+          <div class="card-header">
+            <div class="results-count" id="results-count-text">
+              Search results will appear here.
+            </div>
+            <div class="toolbar-actions" id="results-export-actions" style="display: none;">
+              <button class="btn btn-secondary btn-sm" id="export-json-btn">Export JSON</button>
+              <button class="btn btn-secondary btn-sm" id="export-csv-btn">Export CSV</button>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <!-- Empty State -->
+            <div class="state-box" id="results-empty-state">
+              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              <h4>No Search Executed</h4>
+              <p>Enter your query, verify the root directory, and click Run Search.</p>
+            </div>
+
+            <!-- Loading State -->
+            <div class="state-box" id="results-loading-state" style="display: none;">
+              <div class="spinner-primary"></div>
+              <h4>Scanning Filesystem Concurrently...</h4>
+              <p>Traversing directory tree across worker threads.</p>
+            </div>
+
+            <!-- Table -->
+            <table class="data-table" id="results-data-table" style="display: none;">
+              <thead>
+                <tr>
+                  <th style="width: 32px;"></th>
+                  <th>File Name</th>
+                  <th>File Path</th>
+                  <th>Match Details</th>
+                  <th>Size</th>
+                  <th style="text-align: right; width: 100px;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           SECTION 2: BENCHMARK PAGE
+           ================================================================== -->
+      <section id="benchmark-section" class="app-section" style="margin-top: 40px;">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Performance Benchmark</h2>
+              <p class="card-subtitle">Measure multithreaded speedup and execution duration on target directories.</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input type="text" id="bench-folder-input" class="form-input" value="." style="width: 200px; height: 34px;">
+              <button class="btn btn-primary btn-sm" id="run-bench-btn">Run Benchmark</button>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="benchmark-layout">
+              <div class="chart-card-box">
+                <div class="chart-title-row">
+                  <strong style="font-size: 0.92rem; color: var(--text-primary);">Thread Scalability Curve</strong>
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">Measured Speedup vs Linear</span>
+                </div>
+                <div class="chart-canvas-wrapper">
+                  <canvas id="benchmark-canvas"></canvas>
+                </div>
+              </div>
+
+              <div>
+                <div class="table-wrapper">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Threads</th>
+                        <th>Time (s)</th>
+                        <th>Files Checked</th>
+                        <th>Speedup</th>
+                      </tr>
+                    </thead>
+                    <tbody id="bench-tbody">
+                      <tr>
+                        <td>1 Thread</td>
+                        <td>0.0210 s</td>
+                        <td>1,248</td>
+                        <td><span class="badge badge-gray">1.00x</span></td>
+                      </tr>
+                      <tr>
+                        <td>2 Threads</td>
+                        <td>0.0108 s</td>
+                        <td>1,248</td>
+                        <td><span class="badge badge-primary">1.94x</span></td>
+                      </tr>
+                      <tr>
+                        <td>4 Threads</td>
+                        <td>0.0056 s</td>
+                        <td>1,248</td>
+                        <td><span class="badge badge-primary">3.75x</span></td>
+                      </tr>
+                      <tr>
+                        <td>8 Threads</td>
+                        <td>0.0031 s</td>
+                        <td>1,248</td>
+                        <td><span class="badge badge-primary">6.77x</span></td>
+                      </tr>
+                      <tr>
+                        <td>12 Threads</td>
+                        <td>0.0022 s</td>
+                        <td>1,248</td>
+                        <td><span class="badge badge-success">9.55x</span></td>
+                      </tr>
+                      <tr>
+                        <td>16 Threads</td>
+                        <td>0.0020 s</td>
+                        <td>1,248</td>
+                        <td><span class="badge badge-success">10.50x</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <p style="margin-top: 14px; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45;">
+                  <strong>Note:</strong> In accordance with Amdahl's Law, maximum achievable speedup is bounded by serial directory enumeration and OS filesystem cache availability.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           SECTION 3: ARCHITECTURE PAGE
+           ================================================================== -->
+      <section id="architecture-section" class="app-section" style="margin-top: 40px;">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Engine Architecture</h2>
+              <p class="card-subtitle">Internal concurrency model, synchronization primitives, and traversal pipeline.</p>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <!-- Architecture Flow Diagram -->
+            <div class="arch-flow-diagram">
+              <div class="diagram-node">
+                <span>Coordinator Thread</span>
+                <small>main.c / run_search</small>
+              </div>
+              <span class="diagram-arrow">→</span>
+              <div class="diagram-node">
+                <span>Task Queue (work_queue_t)</span>
+                <small>pthread_mutex + cond_t</small>
+              </div>
+              <span class="diagram-arrow">→</span>
+              <div class="diagram-node">
+                <span>Worker Threads (1..32)</span>
+                <small>search_worker loop</small>
+              </div>
+              <span class="diagram-arrow">→</span>
+              <div class="diagram-node">
+                <span>Matching & Inode Filter</span>
+                <small>fnmatch / strcasestr</small>
+              </div>
+              <span class="diagram-arrow">→</span>
+              <div class="diagram-node">
+                <span>Result Collection</span>
+                <small>Atomic Stats & History</small>
+              </div>
+            </div>
+
+            <!-- Architecture Breakdown Cards -->
+            <div class="arch-grid-cards">
+              <div class="arch-step-card">
+                <div class="arch-step-num">01. WORK QUEUE</div>
+                <h3 class="arch-step-title">Dynamic Work Queue</h3>
+                <p class="arch-step-desc">
+                  Uses a thread-safe linked-list queue (<code>work_queue_t</code>) protected by <code>pthread_mutex_t</code>. Worker threads sleep on <code>pthread_cond_t</code> (<code>has_work</code>) and wake instantly when directories are discovered.
+                </p>
+              </div>
+
+              <div class="arch-step-card">
+                <div class="arch-step-num">02. SYMLINK SAFETY</div>
+                <h3 class="arch-step-title">Inode Cycle Protection</h3>
+                <p class="arch-step-desc">
+                  To prevent infinite recursion caused by circular symlinks, every visited directory's device and inode pair (<code>dev_t, ino_t</code>) is recorded in a mutex-guarded hash set.
+                </p>
+              </div>
+
+              <div class="arch-step-card">
+                <div class="arch-step-num">03. CONTENT SCANNER</div>
+                <h3 class="arch-step-title">Streamed Text Matching</h3>
+                <p class="arch-step-desc">
+                  Inspects files line by line using <code>getline</code>. Employs binary file heuristic detection by scanning the first 1024 bytes for null characters and non-printable control bytes.
+                </p>
+              </div>
+
+              <div class="arch-step-card">
+                <div class="arch-step-num">04. CONCURRENCY SHUTDOWN</div>
+                <h3 class="arch-step-title">Zero-Busy-Wait Termination</h3>
+                <p class="arch-step-desc">
+                  Termination is detected deterministically when <code>count == 0 && active_workers == 0</code>, broadcasting <code>all_done</code> to awaken and join all POSIX threads cleanly.
+                </p>
+              </div>
+
+              <div class="arch-step-card">
+                <div class="arch-step-num">05. DEDUPLICATION</div>
+                <h3 class="arch-step-title">3-Tier Duplicate Engine</h3>
+                <p class="arch-step-desc">
+                  Eliminates redundant files by first sorting files by size in $O(N \log N)$ time, computing 64-bit FNV-1a hashes on size collisions, and verifying with byte-by-byte <code>memcmp</code>.
+                </p>
+              </div>
+
+              <div class="arch-step-card">
+                <div class="arch-step-num">06. MONOTONIC TIMING</div>
+                <h3 class="arch-step-title">High-Precision Timers</h3>
+                <p class="arch-step-desc">
+                  Measures benchmark and search execution via <code>clock_gettime(CLOCK_MONOTONIC)</code> to provide nanosecond-accurate duration independent of system wall-clock changes.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           SECTION 4: HISTORY PAGE
+           ================================================================== -->
+      <section id="history-section" class="app-section" style="margin-top: 40px;">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Search History</h2>
+              <p class="card-subtitle">Audit trail loaded from <code>search_history.txt</code> on the host system.</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" id="refresh-history-btn">Refresh</button>
+              <button class="btn btn-secondary btn-sm" id="clear-history-btn" style="color: var(--error);">Clear Log</button>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Type</th>
+                  <th>Root Directory</th>
+                  <th>Search Query</th>
+                  <th>Threads</th>
+                  <th>Time</th>
+                  <th>Matches</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="history-tbody">
+                <!-- History rows populated by app.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Clean Footer -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div>
+        <strong>Parallel Search</strong> — Production File Traversal Utility & Concurrency Engine
+      </div>
+      <div class="footer-links">
+        <a href="#search" class="footer-link">Search</a>
+        <a href="#benchmark" class="footer-link">Benchmark</a>
+        <a href="#architecture" class="footer-link">Architecture</a>
+        <a href="#history" class="footer-link">History</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
